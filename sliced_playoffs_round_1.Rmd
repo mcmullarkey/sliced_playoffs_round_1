@@ -1,0 +1,554 @@
+---
+title: "SLICED Playoffs Round One"
+author: "Michael Mullarkey"
+date: "7/27/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE, cache = FALSE}
+require("knitr")
+## setting working directory
+knitr::opts_chunk$set(echo = TRUE, tidy = TRUE, warning = FALSE, message = FALSE, include = FALSE)
+```
+
+Alright, let's see how this goes y'all!
+
+Definitely going to join in the park dimensions csv, looks like the park variable *should* make that join relatively easy (Famous last words, probably!)
+
+Probably going to try to do text recipes to deal with the really high cardinality variables, since treating them any other way probably won't work super well in this context (Have I used textrecipes since the last time I was on SLICED? Nope!)
+
+Outcome: is_home_run (probably will need to recode)
+
+ID: bip_id, park
+
+Date: game_date
+
+Nominal: home_team, away_team, batter_team, is_batter_lefty (will need to recode), is_pitcher_lefty (will need to recode), bb_type, bearing, pitch_name, inning (will have to recode), NAME (will recode to park_name), cover
+
+Numeric: outs_when_up, balls, strikes, plate_x, plate_z, pitch_mph, lauch_speed, launch_angle, lf_dim, cf_dim, rf_dim, lf_w, cf_w, rf_w 
+
+Text: batter_name, pitcher_name
+
+Drop: batter_id, pitcher_id
+
+```{r}
+
+library(tidymodels)
+library(tidyverse)
+library(doMC)
+library(skimr)
+library(janitor)
+
+```
+
+```{r}
+
+doMC::registerDoMC(cores = 7)
+
+```
+
+```{r}
+
+parks <- read_csv("park_dimensions.csv") %>% 
+  clean_names()
+
+skim(parks)
+
+glimpse(parks)
+
+```
+
+Awesome, we have all the data together and in (I think!) the correct format. We'll see though...
+
+```{r}
+
+d <- read_csv("train.csv") %>% 
+  clean_names() %>% 
+  dplyr::select(-batter_id, -pitcher_id) %>% 
+  mutate(across(c(inning, outs_when_up, balls, strikes, home_team,
+                  away_team, batter_team, bb_type, bearing,
+                  pitch_name), factor),
+         is_batter_lefty = factor(case_when(
+           is_batter_lefty == 0 ~ "Right-Handed",
+           is_batter_lefty == 1 ~ "Left-Handed"
+         )),
+         is_pitcher_lefty = factor(case_when(
+           is_pitcher_lefty == 0 ~ "Right-Handed",
+           is_pitcher_lefty == 1 ~ "Left-Handed"
+         ))) %>% 
+    left_join(parks, by = "park") %>% 
+  mutate(across(c(name, cover, park), factor),
+         is_home_run = factor(case_when(
+           is_home_run == 0 ~ "No",
+           is_home_run == 1 ~ "Yes"
+         )))
+
+skim(d)
+
+glimpse(d)
+
+```
+
+```{r}
+
+library(lubridate)
+
+test <- read_csv("test.csv") %>% 
+  clean_names() %>% 
+  dplyr::select(-batter_id, -pitcher_id) %>% 
+  mutate(across(c(inning, outs_when_up, balls, strikes, home_team,
+                  away_team, batter_team, bb_type, bearing,
+                  pitch_name), factor),
+         is_batter_lefty = factor(case_when(
+           is_batter_lefty == 0 ~ "Right-Handed",
+           is_batter_lefty == 1 ~ "Left-Handed"
+         )),
+         is_pitcher_lefty = factor(case_when(
+           is_pitcher_lefty == 0 ~ "Right-Handed",
+           is_pitcher_lefty == 1 ~ "Left-Handed"
+         ))) %>% 
+    left_join(parks, by = "park") %>% 
+  mutate(across(c(name, cover, park), factor),
+         game_date = lubridate::as_date(game_date))
+
+```
+
+
+```{r}
+
+library(ggalluvial)
+library(showtext)
+
+font_add_google(name = "Concert One",
+                family = "concert")
+
+showtext::showtext_auto()
+
+d %>% 
+  filter(pitch_name != "Forkball" & pitch_name != "Knuckle Curve") %>% 
+  group_by(pitch_name, is_batter_lefty) %>% 
+  summarise(freq = n()) %>% 
+  ggplot(aes(axis1 = pitch_name, axis2 = is_batter_lefty, y = freq)) +
+  geom_alluvium(aes(fill = pitch_name), show.legend = FALSE) +
+  scale_x_discrete(limits = c("Pitch Type", "Batter Dominant Hand"), expand = c(0.05, 0.05)) +
+  geom_stratum(width = 1/8, fill = "black", color = "grey") +
+  geom_label(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_fill_viridis_d(option = "mako") +
+  theme_dark() +
+  theme(text = element_text(family = "concert"),
+        plot.background = element_rect(fill = "grey75")) +
+  labs(y = "Number of Pitches",
+       title = "The 4 Seam Fastball is Still King, Honestly Surprised They're Aren't More Sliders",
+       subtitle = "Sinkers and Sliders Go More to Right-Handed Batters")
+
+
+```
+
+```{r}
+
+## Let's check out pitch speed by inning
+
+library(ggridges)
+
+d %>% 
+  ggplot(aes(x = pitch_mph, y = inning, fill = inning, color = inning)) +
+  geom_density_ridges(alpha = 0.4, jittered_points = TRUE, postion = "raincloud") +
+  scale_fill_viridis_d(guide = "none") +
+  scale_color_viridis_d(guide = "none") +
+  theme_dark() +
+  theme(text = element_text(family = "concert"),
+        plot.background = element_rect(fill = "grey75")) +
+  labs(x = "Pitch Miles Per Hour", y = "Inning",
+       title = "See Some Law of Small Numbers on Pitch Speed Variation in Extra Innings!")
+
+```
+
+```{r}
+
+# Ok, I'm still curious about pitch type, let's see...
+
+d %>% 
+  ggplot(aes(x = forcats::fct_reorder(pitch_name, pitch_name, .fun = "length"))) +
+  geom_bar(aes(fill = pitch_name, guide = "none")) +
+  scale_fill_viridis_d(option = "inferno") +
+  coord_polar() +
+  theme_minimal() +
+  theme(text = element_text(family = "concert")) +
+  labs(x = "", y = "Pitch Count (No, Not That Kind)",
+       fill = "Type of Pitch",
+       title = "Bring Back the Knuckleball! Or Learn to Spell Knuckleball?")
+
+```
+```{r}
+
+library(ggthemes)
+
+d %>% 
+  ggplot(aes(launch_speed, launch_angle)) +
+  geom_hex() +
+  scale_fill_viridis_c(option = "magma") +
+  theme_minimal() +
+  theme(text = element_text(family = "concert")) +
+  labs(x = "Launch Speed", y = "Launch Angle", fill = "Count",
+       title = "Most Launch Speeds are Around 100 MPH with Launch Angles Right Around Zero",
+       subtitle = "The Launch Speed of My Code is About 0 With An Angle of AHHHHH")
+
+```
+
+```{r}
+
+d %>% 
+  ggplot(aes(launch_speed, launch_angle)) +
+  geom_hex() +
+  scale_fill_viridis_c(option = "magma") +
+  theme_minimal() +
+  theme(text = element_text(family = "concert")) +
+  labs(x = "Launch Speed", y = "Launch Angle", fill = "Count",
+       title = "Launch Speed and Angle Stay Pretty Consistent Across the Strike Count") +
+  facet_wrap(~strikes, ncol = 2)
+
+```
+
+```{r}
+
+library(ggdist)
+
+glimpse(d)
+
+font_add_google(name = "Orbitron",
+                family = "orbitron")
+
+d %>% 
+  mutate(is_home_run = fct_relevel(is_home_run, "Yes", "No")) %>% 
+  ggplot(aes(plate_x)) +
+  geom_dots(color = "lightblue", fill = "lightblue") +
+  theme_solarized() +
+  labs(x = "Pitch Postion to Left and Right of Center Plate",
+       y = "Density",
+       title = "The Famed Icecube Plot (RIP) Also These Distributions Don't Differ by HR or Not",
+       subtitle = "Automatic GF? Automatic GF") +
+  theme(text = element_text(family = "orbitron", size = 8.5)) +
+  facet_wrap(~is_home_run)
+  
+
+```
+
+Alright, that was actually a lot of fun! Now, the modeling. You know, the main thing that gets points in this competition...
+
+Y'all know it's an XG Boost, I don't have to tell y'all that
+
+```{r}
+
+glimpse(d)
+
+xg_rec <- recipe(is_home_run ~ ., data = d) %>% 
+  update_role(bip_id, new_role = "id") %>% 
+  # step_date(game_date) %>% 
+  step_rm(game_date, park, c(batter_name, pitcher_name)) %>% # I'm going to try without text modeling first, then see if I can pull if off after
+ # step_novel(c(home_team:strikes, name, cover)) %>% 
+  # step_other(c(home_team:strikes, name, cover)) %>% 
+  step_nzv(all_predictors()) %>% 
+  step_dummy(all_nominal_predictors(), one_hot = TRUE) %>%
+  step_YeoJohnson(all_predictors()) %>% 
+  step_normalize(all_predictors()) %>% 
+  step_impute_median(all_predictors())
+
+test_rec <- xg_rec %>% 
+  prep(verbose = TRUE) %>% 
+  juice()
+
+skim(test_rec)
+  
+
+```
+Now that we know the recipe is working (we think!) we can move on to the workflow and CV (Never looking at the leaderboard for my own health/sanity. Ok, maybe once to make sure I didn't predict the wrong column)
+
+```{r}
+
+xg_mod <- boost_tree() %>% 
+  set_engine("xgboost") %>% 
+  set_mode("classification")
+
+xg_wf <- workflow() %>% 
+  add_model(xg_mod) %>% 
+  add_recipe(xg_rec)
+
+```
+
+```{r}
+
+set.seed(33) # I know it's baseball, but it's also still Larry Bird. Hi Dad!
+
+mlb_folds <- vfold_cv(d, strata = is_home_run)
+
+library(tictoc)
+
+tic()
+xg_rs <- 
+  xg_wf %>% 
+  fit_resamples(mlb_folds, control = control_resamples(save_pred = TRUE),
+                metrics = metric_set(mn_log_loss))
+toc()
+
+```
+
+Might want to know the actual metric I'm being scored on, just for fun! (Narrator: It was in the docs, which you read before but your adrenaline made you forget)
+
+I have no idea if this is good or not, wheee! I mean, I know it's better that it's low, but how low does it need to be, especially with an unbalanced outcome...
+
+```{r}
+
+xg_rs %>% 
+  collect_metrics()
+
+```
+Whatever, going to submit (I think I did a good job getting the features into the right kind of shape) and then we'll go from here
+
+```{r}
+
+mvm_fit <- fit(xg_wf, d)
+
+```
+
+Lol, actually reading in the test set might help. BRB.
+
+A journey you hopefully only saw some of! I should file an issue on step_date (or just watch what DRob did after this lol)
+
+```{r}
+
+compare_df_cols_same(d, test)
+
+mvm_preds <- predict(mvm_fit, test, type = "prob") %>% 
+  bind_cols(test %>% dplyr::select(bip_id)) %>% 
+  rename(is_home_run = .pred_Yes) %>% 
+  dplyr::select(-.pred_No) %>% 
+  relocate(bip_id, is_home_run) %>% 
+  print()
+
+write_csv(mvm_preds, "mvm_preds.csv")
+
+```
+
+Let's check out variable importance and see if a pared down model will help
+
+```{r}
+
+library(vip)
+
+mvm_fit %>% 
+  pull_workflow_fit() %>% 
+  vip(num_features = 20) +
+  theme_solarized() +
+  theme(text = element_text(family = "orbitron", size = 8)) +
+  labs(title = "Wow Only A Few Things Seem To (Relatively) Matter Much At All in This Model")
+
+
+```
+Let's pare down to the features whose importance is literally visible vs. not really and see if that improves model performance
+
+```{r}
+
+xg_rec_relev <- recipe(is_home_run ~ launch_angle + launch_speed + bb_type + bearing +
+                         pitch_mph + plate_z + rf_w + home_team + plate_x + bip_id, data = d) %>% 
+  update_role(bip_id, new_role = "id") %>% 
+  # step_date(game_date) %>% 
+  # step_rm(game_date, park, c(batter_name, pitcher_name)) %>% # I'm going to try without text modeling first, then see if I can pull if off after
+ # step_novel(c(home_team:strikes, name, cover)) %>% 
+  # step_other(c(home_team:strikes, name, cover)) %>% 
+  step_nzv(all_predictors()) %>% 
+  step_dummy(all_nominal_predictors(), one_hot = TRUE) %>%
+  step_YeoJohnson(all_predictors()) %>% 
+  step_normalize(all_predictors()) %>% 
+  step_impute_median(all_predictors())
+
+test_rec_relev <- xg_rec_relev %>% 
+  prep(verbose = TRUE) %>% 
+  juice()
+
+skim(test_rec_relev)
+
+```
+```{r}
+
+xg_wf_relev <- workflow() %>% 
+  add_model(xg_mod) %>% 
+  add_recipe(xg_rec_relev)
+
+tic()
+xg_rs_relev <-
+  xg_wf_relev %>% 
+  fit_resamples(mlb_folds, control = control_resamples(save_pred = TRUE),
+                metrics = metric_set(mn_log_loss))
+toc()
+
+```
+
+By the smallest amount this is better, but also paring down the features makes it more realistic for me to tune through before I run out of time, so let's go with the pared down model
+
+```{r}
+
+xg_rs_relev %>% 
+  collect_metrics()
+
+```
+```{r}
+
+relev_fit <- fit(xg_wf_relev, d)
+
+relev_preds <- predict(relev_fit, test, type = "prob") %>% 
+  bind_cols(test %>% dplyr::select(bip_id)) %>% 
+  rename(is_home_run = .pred_Yes) %>% 
+  dplyr::select(-.pred_No) %>% 
+  relocate(bip_id, is_home_run) %>% 
+  print()
+
+write_csv(relev_preds, "relev_preds.csv")
+
+```
+And now it's workflowset tuning time! Which means it's time for ALL the gradient boosted models, may the best one win
+
+Or ya know, maybe at least not finish last!
+
+```{r}
+
+library(treesnip)
+library(catboost)
+library(lightgbm)
+library(workflowsets)
+
+xg_mod_tune <- boost_tree(tree_depth = tune(), learn_rate = tune(), trees = tune(), min_n = tune()) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("classification")
+
+cat_mod_tune <- boost_tree(tree_depth = tune(), learn_rate = tune(), trees = tune(), min_n = tune()) %>% 
+  set_engine("catboost") %>% 
+  set_mode("classification")
+
+lgbm_mod_tune <- boost_tree(tree_depth = tune(), learn_rate = tune(), trees = tune(), min_n = tune()) %>% 
+  set_engine("lightgbm") %>% 
+  set_mode("classification")
+
+sliced_set <- workflow_set(
+  preproc = list(relev = xg_rec_relev),
+  models = list(xg = xg_mod_tune, cat = cat_mod_tune, lgbm = lgbm_mod_tune)
+)
+
+## Ok, let's run this as a job so my console is free for viz while I'm tuning
+
+write_rds(sliced_set, "sliced_set.rds")
+write_rds(mlb_folds, "mlb_folds.rds")
+
+library(rstudioapi)
+
+jobRunScript("wfsets_tune.R", name = "wfsets_tune", exportEnv = "R_GlobalEnv")
+
+```
+
+Now going to pre-write some code just in case these models actually tune.
+
+The model just needs to fit to the data so I can make the predictions! Fingers crossed that happens in time!!
+
+Even if not, I'm proud of what I've done so far. Hell yes, let's go!
+
+```{r}
+
+rank_results(race)
+
+best_results <- race %>% 
+  pull_workflow_set_result("relev_xg") %>% # Need to fill this in later
+  show_best(metric = "mn_log_loss") # Might have to wrap this in metric later? I don't think so but we'll hopefully see!
+
+# A little worried this might take too long but we'll see!
+
+tic() 
+wfsets_fitted_mod <- race %>% 
+  pull_workflow("relev_xg") %>% # Need to fill in later
+  finalize_workflow(best_results) %>% 
+  fit(d)
+toc()
+
+wfsets_preds <- predict(wfsets_fitted_mod, test, type = "prob") %>% 
+  bind_cols(test %>% dplyr::select(bip_id)) %>% 
+  rename(is_home_run = .pred_Yes) %>% 
+  dplyr::select(-.pred_No) %>% 
+  relocate(bip_id, is_home_run) %>% 
+  print()
+
+write_csv(wfsets_preds, "wfsets_preds.csv")
+  
+```
+
+
+Let's have some more viz fun while this model (hopefully!) tunes
+
+```{r}
+
+pitch_launch <- d %>% 
+  mutate(is_home_run = fct_relevel(is_home_run, "Yes", "No")) %>% 
+  ggplot(aes(launch_speed, color = pitch_mph)) +
+  geom_dots() +
+  scale_color_viridis_c(option = "magma") +
+  theme_solarized() +
+  labs(x = "Launch Speed",
+       y = "Density",
+       title = "Ball Launch Speed and Pitch Speed Seemed to Not Be That Related",
+       subtitle = "Or At Least Less Than I Expected",
+       color = "Pitch MPH") +
+  theme(text = element_text(family = "orbitron", size = 10))
+
+pitch_launch
+
+```
+I wonder if the relationship between Launch Speed and Pitch Speed differ by Pitch Type...
+
+```{r}
+
+facet_pitch_launch <- d %>% 
+  filter(pitch_name != "Forkball") %>% 
+  mutate(is_home_run = fct_relevel(is_home_run, "Yes", "No")) %>% 
+  ggplot(aes(launch_speed, color = pitch_mph)) +
+  geom_dots() +
+  scale_color_viridis_c(option = "magma") +
+  theme_solarized() +
+  labs(x = "Launch Speed",
+       y = "Density",
+       title = "Pitch Speed Changes as Expected Across Pitch Types",
+       subtitle = "But Still No Clear Cut Association Between Launch and Pitch Speed",
+       color = "Pitch MPH") +
+  theme(text = element_text(family = "orbitron", size = 10)) +
+  facet_wrap(~pitch_name)
+
+facet_pitch_launch
+
+```
+```{r}
+
+library(patchwork)
+
+pitch_launch_updated <- pitch_launch +
+  theme(text = element_text(family = "orbitron", size = 4.5),
+        legend.position = "none")
+
+facet_pitch_launch_updated <- facet_pitch_launch +
+  theme(text = element_text(family = "orbitron", size = 5))
+
+pitch_launch_updated + facet_pitch_launch_updated
+
+```
+
+
+```{r}
+
+d %>% 
+  ggplot(aes(launch_speed, launch_angle)) +
+  geom_hex() +
+  scale_fill_viridis_c(option = "magma") +
+  theme_minimal() +
+  theme(text = element_text(family = "concert")) +
+  labs(x = "Launch Speed", y = "Launch Angle", fill = "Count",
+       title = "Launch Speed and Angle Stay Somewhat Consistent Across the Ball Count",
+       subtitle = "Less So on Ball 3 But That Might Just Be Small Sample Size") +
+  facet_wrap(~balls, ncol = 2)
+
+```
+
