@@ -1,1 +1,3 @@
-# sliced_playoffs_round_1
+# SLICED EP09 Livestream Data Science Competition Code
+
+My code from the 2 hours during Episode 09 of SLICED (Round 1 of the playoffs). [SLICED](https://www.notion.so/SLICED-Show-c7bd26356e3a42279e2dfbafb0480073) is a live-streamed competitive data science show hosted by [Nick Wan](https://twitter.com/nickwan) and [Meg Risdal](https://twitter.com/MeganRisdal?ref_src=twsrc%5Egoogle%7Ctwcamp%5Eserp%7Ctwgr%5Eauthor). Contestants compete to solve a prediction problem while doing data visualization on data they've never seen before within 2 hours. Season 01 of SLICED is happening every Tuesday at 8:30 PM EST until August 17, 2021. You can watch the livestreams [here](https://www.twitch.tv/nickwan_datasci) and check out the replays [here](https://www.youtube.com/channel/UCCsy9G2d0Q7m_d8cOtDineQ/videos).
