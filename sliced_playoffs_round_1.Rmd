@@ -141,6 +141,7 @@ d %>%
        title = "The 4 Seam Fastball is Still King, Honestly Surprised They're Aren't More Sliders",
        subtitle = "Sinkers and Sliders Go More to Right-Handed Batters")
 
+ggsave("shranky.jpg")
 
 ```
 
@@ -533,6 +534,8 @@ facet_pitch_launch_updated <- facet_pitch_launch +
   theme(text = element_text(family = "orbitron", size = 5))
 
 pitch_launch_updated + facet_pitch_launch_updated
+
+ggsave("patchwork_pitch.jpg")
 
 ```
 
