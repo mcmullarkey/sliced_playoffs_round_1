@@ -153,7 +153,7 @@ library(ggridges)
 
 d %>% 
   ggplot(aes(x = pitch_mph, y = inning, fill = inning, color = inning)) +
-  geom_density_ridges(alpha = 0.4, jittered_points = TRUE, postion = "raincloud") +
+  geom_density_ridges(alpha = 0.2, jittered_points = TRUE, position = "raincloud", quantile_lines = TRUE) +
   scale_fill_viridis_d(guide = "none") +
   scale_color_viridis_d(guide = "none") +
   theme_dark() +
@@ -174,12 +174,15 @@ d %>%
   scale_fill_viridis_d(option = "inferno") +
   coord_polar() +
   theme_minimal() +
-  theme(text = element_text(family = "concert")) +
+  theme(text = element_text(family = "concert"),
+        legend.position = "none") +
   labs(x = "", y = "Pitch Count (No, Not That Kind)",
        fill = "Type of Pitch",
        title = "Bring Back the Knuckleball! Or Learn to Spell Knuckleball?")
 
 ```
+End of Part 1 Code Walkthrough
+
 ```{r}
 
 library(ggthemes)
